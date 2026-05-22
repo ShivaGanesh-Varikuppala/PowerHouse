@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1.6
+FROM node:20-alpine AS base
+WORKDIR /repo
+RUN apk add --no-cache openssl libc6-compat
+
+FROM base AS deps
+COPY package.json package-lock.json* ./
+COPY apps/web/package.json apps/web/
+COPY packages/prisma/package.json packages/prisma/
+RUN npm install --include=dev --workspaces --include-workspace-root
+
+FROM deps AS build
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build --workspace @powerhouse/web
+
+FROM base AS runner
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=build /repo/apps/web/.next ./apps/web/.next
+COPY --from=build /repo/apps/web/public ./apps/web/public
+COPY --from=build /repo/apps/web/package.json ./apps/web/
+COPY --from=build /repo/apps/web/next.config.ts ./apps/web/
+COPY --from=deps /repo/node_modules ./node_modules
+COPY package.json ./
+EXPOSE 3000
+WORKDIR /repo/apps/web
+CMD ["npm", "run", "start"]
